@@ -16,49 +16,43 @@
 __global__ void matrixMultiplier(float* d_A, float* d_B, float* d_C, int j, int k, int l) {
 
     // Allocate shared memory space
-    __shared__ float A_shared[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float B_shared[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float A_shared[TILE_WIDTH*TILE_WIDTH];
+    __shared__ float B_shared[TILE_WIDTH*TILE_WIDTH];
     
-    // Set block and thread position variables
-    int block_x = blockIdx.x;
-    int block_y = blockIdx.y;
-    int thread_x = threadIdx.x;
-    int thread_y = threadIdx.y;
-
     // Detemine current C row and column
-    int C_Row = block_y * TILE_WIDTH + thread_y;
-    int C_Col = block_x * TILE_WIDTH + thread_x;
+    int Row = blockIdx.y * blockDim.y + threadIdx.y;
+    int Col = blockIdx.x * blockDim.x + threadIdx.x;
 
     float C_value = 0;
     // Determine number of phases required and start iteration
-    int phase_count = ceil(k /(float)TILE_WIDTH);
+    int phase_count = ceil(k /(float)blockDim.x);
     for (int phase = 0; phase < phase_count; ++phase) {
-        if (C_Row < j && (phase * TILE_WIDTH + thread_x) < k) {
+        if (Row < j && (phase * blockDim.x + threadIdx.x) < k) {
             // Load A value into shared mem
-            A_shared[thread_y][thread_x] = d_A[C_Row * k + phase * TILE_WIDTH + thread_x];
+            A_shared[threadIdx.y* blockDim.x + threadIdx.x] = d_A[Row * k + phase * blockDim.x + threadIdx.x];
         }
         else {
-            A_shared[thread_y][thread_x] = 0.0;
+            A_shared[threadIdx.y* blockDim.x + threadIdx.x] = 0.0;
         }
 
-        if (C_Col < l && (phase * TILE_WIDTH + thread_y) < k) {
+        if (Col < l && (phase * blockDim.y + threadIdx.y) < k) {
             // Load B value into shared mem
-            B_shared[thread_y][thread_x] = d_B[(phase * TILE_WIDTH + thread_y) * l + C_Col];
+            B_shared[threadIdx.y*blockDim.x + threadIdx.x] = d_B[(phase * blockDim.x + threadIdx.y) * l + Col];
         }
         else {
-            B_shared[thread_y][thread_x] = 0.0;
+            B_shared[threadIdx.y*blockDim.x + threadIdx.x] = 0.0;
         }
         __syncthreads();
 
-        for (int i = 0; i < TILE_WIDTH; i++) {
+        for (int i = 0; i < blockDim.x; i++) {
             // Multiple A and B values and add to current C value
-            C_value += A_shared[thread_y][i] * B_shared[i][thread_x];
+            C_value += A_shared[threadIdx.y*blockDim.x + i] * B_shared[i*blockDim.x + threadIdx.x];
         }
         __syncthreads();
     }
-    if (C_Row < j && C_Col < l) {
+    if (Row < j && Col < l) {
         // Write C values to global memory
-        d_C[C_Row * l + C_Col] = C_value;
+        d_C[Row * l + Col] = C_value;
     }
 }
 
@@ -79,13 +73,18 @@ void hostMatrixMultiplier(float* A, float* B, float* C, unsigned int row_Dim_A, 
 // Function to compare C matrix from GPU and C matrix from CPU
 // Used to validate GPU's results
 int checkResults(float* h_C, float* C, int size_C) {
+    //for (int i = 0; i < size_C; i++) {
+    //    printf("%f,%f\n", h_C[i], C[i]);
+    //}
+
     for (int i = 0; i < size_C; i++) {
         if (h_C[i] != C[i]) {
-            printf("\nMatrices not equal!\n");
+            printf("%d\n", i);
+            printf("\n->This Matrices not equal!\n");
             return(1);
         }
     }
-    printf("\nMatrices equal\n");
+    printf("\n->Test Matrices equal\n");
     return (0);
 }
 
@@ -94,7 +93,7 @@ int checkResults(float* h_C, float* C, int size_C) {
 int main(int argc, char** argv) {
 
     size_t optind;
-    int row_Dim_A = 2, col_Dim_A = 2, col_Dim_B = 2;
+    int row_Dim_A = 32, col_Dim_A = 32, col_Dim_B = 32;
     // Check for input matrix sizes
     for (optind = 1; optind < argc && argv[optind][0] == '-'; optind++) {
         if (argv[optind][1] == 'i') {
@@ -119,38 +118,15 @@ int main(int argc, char** argv) {
     srand(time(NULL));
     int i = 1;
     for (row = 0; row < size_A; row++) {
-        h_A[row] = rand();
+        h_A[row] = rand()%100;
         i++;
     }
 
     i = 1;
     for (row = 0; row < size_B; row++) {
-        h_B[row] = rand();
+        h_B[row] = rand()%100;
         i++;
     }
-
-
-    /*
-    // Print Matricies
-
-    printf("Matrix A:");
-    for (int i = 0; i < size_A; i++) {
-        if (i % col_Dim_A == 0) {
-            printf("\n");
-        }
-        printf("%f\t", h_A[i]);
-    }
-    printf("\n\n");
-
-    printf("Matrix B:");
-    for (int i = 0; i < size_B; i++) {
-        if (i % col_Dim_B == 0) {
-            printf("\n");
-        }
-        printf("%f\t", h_B[i]);
-    }
-    printf("\n\n");
-    */
 
 
     // Declare device variables
@@ -162,7 +138,6 @@ int main(int argc, char** argv) {
     cudaEvent_t start, stop;
     checkCudaErrors(cudaEventCreate(&start));
     checkCudaErrors(cudaEventCreate(&stop));
-
 
     // Allocate memory on the device
     checkCudaErrors(cudaMalloc((void**)&d_A, mem_size_A));
