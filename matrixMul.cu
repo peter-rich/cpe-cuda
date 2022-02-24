@@ -70,13 +70,8 @@ void hostMatrixMultiplier(float* A, float* B, float* C, unsigned int row_Dim_A, 
     }
 }
 
-// Function to compare C matrix from GPU and C matrix from CPU
-// Used to validate GPU's results
+// Validate GPU's results
 int checkResults(float* h_C, float* C, int size_C) {
-    //for (int i = 0; i < size_C; i++) {
-    //    printf("%f,%f\n", h_C[i], C[i]);
-    //}
-
     for (int i = 0; i < size_C; i++) {
         if (h_C[i] != C[i]) {
             printf("%d\n", i);
@@ -95,14 +90,32 @@ int main(int argc, char** argv) {
     size_t optind;
     int row_Dim_A = 32, col_Dim_A = 32, col_Dim_B = 32;
     // Check for input matrix sizes
-    for (optind = 1; optind < argc && argv[optind][0] == '-'; optind++) {
-        if (argv[optind][1] == 'i') {
-            row_Dim_A = atoi(argv[optind + 1]);
-            col_Dim_A = atoi(argv[optind + 2]);
-            col_Dim_B = atoi(argv[optind + 3]);
+    if (argc > 5) {
+		printf("Too many arguments provided. \n");
+		printf("Enter arguments like this: \n");
+		printf("-i <rowDimA> <colDimA> <colDimB> \n");
+		exit(EXIT_FAILURE);
+	}
+	else if (argc < 4) {
+		printf("4 arguments expected. \n");
+		printf("Enter arguments like this: \n");
+		printf("-i <rowDimM> <colDimM> <colDimN> \n");
+		exit(EXIT_FAILURE);
+	}
+    else {
+        for (optind = 1; optind < argc && argv[optind][0] == '-'; optind++) {
+            if (argv[optind][1] == 'i') {
+                row_Dim_A = atoi(argv[optind + 1]);
+                col_Dim_A = atoi(argv[optind + 2]);
+                col_Dim_B = atoi(argv[optind + 3]);
+                printf("\n");
+		        printf("Matrix A has %s rows \n", argv[2]); 
+		        printf("Matrix A has %s columns \n\n", argv[3]);
+		        printf("Matrix B has %s rows \n", argv[3]);
+		        printf("Matrix B has %s columns \n", argv[4]);
+            }
         }
     }
-
     // Create Matrix A and B
     unsigned int size_A = row_Dim_A * col_Dim_A;
     unsigned int mem_size_A = sizeof(float) * size_A;
@@ -188,7 +201,6 @@ int main(int argc, char** argv) {
         DimBlock.x * DimBlock.y);
 
 
-
     // Copy result from device memory
     checkCudaErrors(cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost));
     // Free device memory
@@ -196,31 +208,9 @@ int main(int argc, char** argv) {
     checkCudaErrors(cudaFree(d_B));
     checkCudaErrors(cudaFree(d_C));
 
-    /*
-    printf("Matrix C:");
-    for (int i = 0; i < size_C; i++) {
-        if (i % col_Dim_B == 0) {
-            printf("\n");
-        }
-        printf("%f\t", h_C[i]);
-    }
-    */
-
     float* C = (float*)(malloc(mem_size_C));;
     hostMatrixMultiplier(h_A, h_B, C, row_Dim_A, col_Dim_A, col_Dim_B);
     printf("\nCPU Done\n");
-
-
-    /*
-    printf("\nMatrix C:");
-    for (int i = 0; i < size_C; i++) {
-        if (i % col_Dim_B == 0) {
-            printf("\n");
-        }
-        printf("%f\t", C[i]);
-    }
-    */
-
 
     checkResults(h_C, C, size_C);
 
