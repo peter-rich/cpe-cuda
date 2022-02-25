@@ -10,7 +10,7 @@
 #include "helper_cuda.h"
 
 
-#define TILE_WIDTH 16
+#define TILE_WIDTH 32
 
 
 __global__ void matrixMultiplier(float* d_A, float* d_B, float* d_C, int j, int k, int l) {
@@ -152,6 +152,10 @@ int main(int argc, char** argv) {
     checkCudaErrors(cudaEventCreate(&start));
     checkCudaErrors(cudaEventCreate(&stop));
 
+    cudaStream_t stream;
+    checkCudaErrors(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+    checkCudaErrors(cudaEventRecord(start, stream));
+    
     // Allocate memory on the device
     checkCudaErrors(cudaMalloc((void**)&d_A, mem_size_A));
     checkCudaErrors(cudaMalloc((void**)&d_B, mem_size_B));
@@ -166,14 +170,20 @@ int main(int argc, char** argv) {
     printf("Block Dimensions %d, %d: \n\n", DimBlock.x, DimBlock.y);
 
     // Record the start event
-    cudaStream_t stream;
-    checkCudaErrors(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-    checkCudaErrors(cudaEventRecord(start, stream));
     
-    int nIter = 150;
+    clock_t begin_gpu = clock();
+    printf("begin multiplication\n");
+
+    int nIter = 100;
     for (int j = 0; j < nIter; j++) {
         matrixMultiplier << <DimGrid, DimBlock >> > (d_A, d_B, d_C, row_Dim_A, col_Dim_A, col_Dim_B);
     }
+
+    // Copy result from device memory
+    checkCudaErrors(cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost));
+    
+    
+    clock_t end_gpu = clock();
 
     // Record the stop event
     checkCudaErrors(cudaEventRecord(stop, stream));
@@ -185,7 +195,7 @@ int main(int argc, char** argv) {
     checkCudaErrors(cudaEventElapsedTime(&msecTotal, start, stop));
 
     // Compute and print the performance
-    float msecPerMatrixMul = msecTotal / nIter;
+    float msecPerMatrixMul = msecTotal/nIter;//(float)(end_gpu-begin_gpu) / (CLOCKS_PER_SEC*1000*nIter);
     float flopsPerMatrixMul = 2.0 * static_cast<float>(col_Dim_A) *
         static_cast<float>(row_Dim_A) *
         static_cast<float>(col_Dim_B);
@@ -200,18 +210,22 @@ int main(int argc, char** argv) {
         flopsPerMatrixMul,
         DimBlock.x * DimBlock.y);
 
+    
 
-    // Copy result from device memory
-    checkCudaErrors(cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost));
+
     // Free device memory
     checkCudaErrors(cudaFree(d_A));
     checkCudaErrors(cudaFree(d_B));
     checkCudaErrors(cudaFree(d_C));
 
     float* C = (float*)(malloc(mem_size_C));;
-    hostMatrixMultiplier(h_A, h_B, C, row_Dim_A, col_Dim_A, col_Dim_B);
-    printf("\nCPU Done\n");
+    
+    clock_t begin_cpu = clock();
 
+    hostMatrixMultiplier(h_A, h_B, C, row_Dim_A, col_Dim_A, col_Dim_B);
+    clock_t end_cpu = clock();
+
+    printf("\nCPU Done\n, time:%f ms", (float)(end_cpu-begin_cpu)/ CLOCKS_PER_SEC * 1000);
     checkResults(h_C, C, size_C);
 
     free(h_A);
